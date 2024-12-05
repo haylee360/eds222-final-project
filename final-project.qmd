@@ -1,0 +1,33 @@
+---
+title: "EDS 222 Final Project"
+author: "Haylee Oyler"
+format: html
+editor: source
+editor_options: 
+  chunk_output_type: console
+---
+
+### Load libraries
+```{r}
+library(tidyverse)
+library(here)
+```
+
+```{r}
+asthma_county <- read_csv(here("data", "asthma-hospitalization-by-county.csv"))
+
+asthma_prev_1995 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-1995-to-2011.csv"))
+
+asthma_prev_2012 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-2012-to-present.csv"))
+
+current_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-current-asthma-prevalence-by-county-2015-present.csv"))
+
+lifetime_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-lifetime-asthma-prevalence-by-county-2015-present.csv"))
+
+aqi_2015 <- read_csv(here("data", "aqi", "annual_aqi_by_county_2015.csv"))
+```
+
+```{r}
+unique(asthma_county$YEAR)
+```
+
