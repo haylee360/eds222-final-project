@@ -11,23 +11,61 @@ editor_options:
 ```{r}
 library(tidyverse)
 library(here)
+library(janitor)
+library(httr)
+library(httr2)
+library(purrr)
+library(RAQSAPI)
 ```
 
 ```{r}
-asthma_county <- read_csv(here("data", "asthma-hospitalization-by-county.csv"))
+asthma_hosp_county <- read_csv(here("data", "asthma-hospitalization-by-county.csv")) %>% 
+  clean_names()
 
-asthma_prev_1995 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-1995-to-2011.csv"))
+asthma_prev_1995 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-1995-to-2011.csv")) %>% 
+  clean_names()
 
-asthma_prev_2012 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-2012-to-present.csv"))
+asthma_prev_2012 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-2012-to-present.csv")) %>% 
+  clean_names()
 
-current_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-current-asthma-prevalence-by-county-2015-present.csv"))
+current_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-current-asthma-prevalence-by-county-2015-present.csv")) %>% 
+  clean_names()
 
-lifetime_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-lifetime-asthma-prevalence-by-county-2015-present.csv"))
+lifetime_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-lifetime-asthma-prevalence-by-county-2015-present.csv")) %>% 
+  clean_names()
 
-aqi_2015 <- read_csv(here("data", "aqi", "annual_aqi_by_county_2015.csv"))
+aqi_2015 <- read_csv(here("data", "aqi", "annual_aqi_by_county_2015.csv")) %>% 
+  clean_names()
 ```
 
 ```{r}
-unique(asthma_county$YEAR)
+aqi_files <- list.files(here("data", "aqi"), 
+                        pattern = "annual",
+                        full.names = TRUE)
+aqi <- tibble()
+
+for (file in aqi_files) {
+  clean_file <- read_csv(file) %>% 
+    clean_names() %>% 
+    filter(state == "California")
+  
+  aqi <- rbind(aqi, clean_file)
+
+}
+```
+
+
+```{r}
+asthma_county %>% 
+  group_by(year) %>% 
+  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
+  ggplot(aes(year, total_hosp)) +
+  geom_point()
+
+asthma_county %>% 
+  group_by(county) %>% 
+  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE))
+
+
 ```
 
