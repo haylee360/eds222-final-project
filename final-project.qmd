@@ -16,29 +16,36 @@ library(httr)
 library(httr2)
 library(purrr)
 library(RAQSAPI)
+library(tmap)
+library(sf)
+library(spatialreg)
+library(stargazer)
 ```
 
 ```{r}
 asthma_hosp_county <- read_csv(here("data", "asthma-hospitalization-by-county.csv")) %>% 
   clean_names()
 
-asthma_prev_1995 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-1995-to-2011.csv")) %>% 
-  clean_names()
+demographics <- read_csv(here("data", "county_demographics.csv")) %>% 
+  clean_names() %>% 
+  filter(state == "CA")
 
-asthma_prev_2012 <- read_csv(here("data", "asthma-prevalence",  "brfss-data-adult-asthma-prevalence-2012-to-present.csv")) %>% 
-  clean_names()
+county_boundaries <- read_sf(here("data", "ca_counties", "CA_Counties.shp")) %>% 
+  clean_names() %>% 
+  rename("county" = "name")
 
-current_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-current-asthma-prevalence-by-county-2015-present.csv")) %>% 
-  clean_names()
+pop_2020 <- read_csv(here("data", "co-est2020-alldata.csv")) %>% 
+  clean_names() %>% 
+  filter(stname == "California")
 
-lifetime_asthma_prev <- read_csv(here("data", "asthma-prevalence", "chis-data-lifetime-asthma-prevalence-by-county-2015-present.csv")) %>% 
-  clean_names()
+pop_2023 <- read_csv(here("data", "co-est2023-alldata.csv")) %>% 
+  clean_names() %>% 
+  filter(stname == "California")
 
-aqi_2015 <- read_csv(here("data", "aqi", "annual_aqi_by_county_2015.csv")) %>% 
-  clean_names()
 ```
 
 ```{r}
+# Read in AQI files as one dataset
 aqi_files <- list.files(here("data", "aqi"), 
                         pattern = "annual",
                         full.names = TRUE)
@@ -50,22 +57,118 @@ for (file in aqi_files) {
     filter(state == "California")
   
   aqi <- rbind(aqi, clean_file)
-
+  rm(clean_file)
 }
+```
+
+## Clean data
+```{r}
+# Clean the county names to make joining easier
+demographics$county <- demographics$county %>% 
+  str_replace(., "County", "") %>% 
+  str_trim(., side="right")
+
+# Select desired columns from demographics
+dem_small <- demographics %>% 
+  select(county, 
+         income_median_houseold_income, 
+         income_per_capita_income, 
+         population_2020_population, 
+         population_population_per_square_mile)
+
+# Select desired columns from county boundaries
+bound_small <- county_boundaries %>% 
+  select(county, geometry)
+
+# Clean asthma data
+asthma_hosp_clean <- asthma_hosp_county %>% 
+  filter(strata == "Total population",
+         county != "California")
+
+# Add row that's the sum of unhealthy for sensitive groups or greater
+aqi$unhealthy_sum <- rowSums(aqi[, c("unhealthy_for_sensitive_groups_days", "unhealthy_days", "hazardous_days", "very_unhealthy_days")])
+
+# Drop undesired columns from aqi data
+aqi <- aqi %>% 
+  select(!state) 
+
+# Clean population data
+pop_2020 <- pop_2020 %>% 
+  select(ctyname, popestimate2015, popestimate2016, popestimate2017, popestimate2018, popestimate2019, popestimate2020) %>% 
+ rename("county" = "ctyname")
+
+pop_2023 <- pop_2023 %>% 
+  select(ctyname, popestimate2021, popestimate2022) %>% 
+ rename("county" = "ctyname")
+
+pop_total <- left_join(pop_2020, pop_2023, by = join_by(county)) 
+# need to pivot longer to join correctly 
+
+```
+
+## Join data
+```{r}
+asthma_aqi <- left_join(asthma_hosp_clean, 
+                        aqi, 
+                        by = c("county" = "county", 
+                               "year" = "year")) %>% 
+  left_join(dem_small) %>% 
+  # left_join(pop_total) %>% 
+  left_join(bound_small) 
 ```
 
 
 ```{r}
-asthma_county %>% 
+asthma_hosp_county %>% 
   group_by(year) %>% 
   summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
   ggplot(aes(year, total_hosp)) +
   geom_point()
 
-asthma_county %>% 
+asthma_hosp_county %>% 
   group_by(county) %>% 
   summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE))
 
+```
 
+
+```{r}
+# summary(asthma_aqi)
+# Add log mutated variables
+asthma_aqi <- asthma_aqi %>% 
+  mutate(log_hosp = log(number_of_hospitalizations))
+
+```
+
+```{r}
+ggplot(asthma_aqi, aes(median_aqi, number_of_hospitalizations)) +
+  geom_point()
+ggplot(asthma_aqi, aes(median_aqi, log(number_of_hospitalizations))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(median_aqi), log(number_of_hospitalizations))) +
+  geom_point()
+
+ggplot(asthma_aqi, aes(unhealthy_sum, number_of_hospitalizations)) +
+  geom_point()
+ggplot(asthma_aqi, aes(unhealthy_sum, log(number_of_hospitalizations))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(unhealthy_sum), log(number_of_hospitalizations))) +
+  geom_point()
+
+
+ggplot(asthma_aqi, aes(unhealthy_days, number_of_hospitalizations)) +
+  geom_point()
+ggplot(asthma_aqi, aes(unhealthy_days, log(number_of_hospitalizations))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(unhealthy_days), log(number_of_hospitalizations))) +
+  geom_point()
+
+ggplot(asthma_aqi, aes(days_pm2_5, log(number_of_hospitalizations))) +
+  geom_point()
+``` 
+
+```{r}
+# asthma_lm <- lm(log_hosp ~ median_aqi, data = asthma_aqi)
+# summary(asthma_lm)
 ```
 
