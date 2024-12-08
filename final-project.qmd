@@ -65,16 +65,15 @@ for (file in aqi_files) {
 ```{r}
 # Clean the county names to make joining easier
 demographics$county <- demographics$county %>% 
-  str_replace(., "County", "") %>% 
-  str_trim(., side="right")
+  str_remove(., " County")
 
 # Select desired columns from demographics
 dem_small <- demographics %>% 
   select(county, 
          income_median_houseold_income, 
-         income_per_capita_income, 
-         population_2020_population, 
-         population_population_per_square_mile)
+         income_per_capita_income) %>% 
+  rename("median_income" = "income_median_houseold_income",
+         "per_capita_income" = "income_per_capita_income")
 
 # Select desired columns from county boundaries
 bound_small <- county_boundaries %>% 
@@ -83,7 +82,8 @@ bound_small <- county_boundaries %>%
 # Clean asthma data
 asthma_hosp_clean <- asthma_hosp_county %>% 
   filter(strata == "Total population",
-         county != "California")
+         county != "California") %>% 
+  select(-c(comment, strata_name, age_group, strata))
 
 # Add row that's the sum of unhealthy for sensitive groups or greater
 aqi$unhealthy_sum <- rowSums(aqi[, c("unhealthy_for_sensitive_groups_days", "unhealthy_days", "hazardous_days", "very_unhealthy_days")])
@@ -101,8 +101,25 @@ pop_2023 <- pop_2023 %>%
   select(ctyname, popestimate2021, popestimate2022) %>% 
  rename("county" = "ctyname")
 
+# Join population data together
 pop_total <- left_join(pop_2020, pop_2023, by = join_by(county)) 
-# need to pivot longer to join correctly 
+
+# Clean the population column names to pivot longer
+for (col in 1:ncol(pop_total)){
+  colnames(pop_total)[col] <- str_remove(colnames(pop_total)[col], 
+                                          "popestimate")
+}
+
+# Clean county names to join later on
+pop_total$county <- pop_total$county %>% 
+  str_remove(., " County")
+
+# Pivot longer to join later on
+pop_total <- pop_total %>% 
+  pivot_longer(!county, names_to = "year", values_to = "population")
+
+# Fix type for joining
+pop_total$year <- as.numeric(pop_total$year)
 
 ```
 
@@ -112,9 +129,11 @@ asthma_aqi <- left_join(asthma_hosp_clean,
                         aqi, 
                         by = c("county" = "county", 
                                "year" = "year")) %>% 
-  left_join(dem_small) %>% 
-  # left_join(pop_total) %>% 
+  left_join(dem_small) %>%
+  left_join(pop_total, by = c("county" = "county",
+                               "year" = "year")) %>%
   left_join(bound_small) 
+
 ```
 
 
@@ -135,40 +154,82 @@ asthma_hosp_county %>%
 ```{r}
 # summary(asthma_aqi)
 # Add log mutated variables
-asthma_aqi <- asthma_aqi %>% 
-  mutate(log_hosp = log(number_of_hospitalizations))
 
+asthma_aqi$number_of_hospitalizations[asthma_aqi$number_of_hospitalizations == 0] <- NA
+
+asthma_aqi <- asthma_aqi %>% 
+  drop_na(number_of_hospitalizations) %>% 
+  mutate(hosp_per_100k = (number_of_hospitalizations / population) * 100000,
+         log_hosp = log(hosp_per_100k),
+         max_aqi = replace(max_aqi, max_aqi > 500, 500))
+
+summary(asthma_aqi)
 ```
 
 ```{r}
-ggplot(asthma_aqi, aes(median_aqi, number_of_hospitalizations)) +
+# Median AQI
+ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
   geom_point()
-ggplot(asthma_aqi, aes(median_aqi, log(number_of_hospitalizations))) +
+ggplot(asthma_aqi, aes(median_aqi, log(hosp_per_100k))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(median_aqi), log(number_of_hospitalizations))) +
-  geom_point()
-
-ggplot(asthma_aqi, aes(unhealthy_sum, number_of_hospitalizations)) +
-  geom_point()
-ggplot(asthma_aqi, aes(unhealthy_sum, log(number_of_hospitalizations))) +
-  geom_point()
-ggplot(asthma_aqi, aes(log(unhealthy_sum), log(number_of_hospitalizations))) +
+ggplot(asthma_aqi, aes(log(median_aqi), log(hosp_per_100k))) +
   geom_point()
 
+# Max AQI
+ggplot(asthma_aqi, aes(max_aqi, hosp_per_100k)) +
+  geom_point()
+ggplot(asthma_aqi, aes(max_aqi, log(hosp_per_100k))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(max_aqi), log(hosp_per_100k))) +
+  geom_point()
 
-ggplot(asthma_aqi, aes(unhealthy_days, number_of_hospitalizations)) +
+# Unhealthy or greater days
+ggplot(asthma_aqi, aes(unhealthy_sum, hosp_per_100k)) +
   geom_point()
-ggplot(asthma_aqi, aes(unhealthy_days, log(number_of_hospitalizations))) +
+ggplot(asthma_aqi, aes(unhealthy_sum, log(hosp_per_100k))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(unhealthy_days), log(number_of_hospitalizations))) +
+ggplot(asthma_aqi, aes(log(unhealthy_sum), log(hosp_per_100k))) +
   geom_point()
 
-ggplot(asthma_aqi, aes(days_pm2_5, log(number_of_hospitalizations))) +
+# PM 2.5 days
+ggplot(asthma_aqi, aes(days_pm2_5, hosp_per_100k)) +
+  geom_point()
+ggplot(asthma_aqi, aes(days_pm2_5, log(hosp_per_100k))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(days_pm2_5), log(hosp_per_100k))) +
+  geom_point()
+
+# Income per capita
+ggplot(asthma_aqi, aes(per_capita_income, hosp_per_100k)) +
+  geom_point()
+ggplot(asthma_aqi, aes(per_capita_income, log(hosp_per_100k))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(per_capita_income), log(hosp_per_100k))) +
   geom_point()
 ``` 
 
 ```{r}
-# asthma_lm <- lm(log_hosp ~ median_aqi, data = asthma_aqi)
-# summary(asthma_lm)
+asthma_lm <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
+summary(asthma_lm)
+```
+
+```{r}
+lm1_int <- summary(asthma_lm)$coefficients[1,1]
+lm1_slope <- summary(asthma_lm)$coefficients[1,2]
+
+ggplot(asthma_aqi, aes(median_aqi, log_hosp)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=FALSE)
+  # geom_abline(intercept = lm1_int, slope = lm1_slope, aes(color = "red"))
+```
+
+```{r}
+resids <- asthma_lm$residuals
+fitted_vals <- fitted(asthma_lm)
+resid_plot <- tibble(resids, fitted_vals)
+
+ggplot(resid_plot, aes(fitted_vals, resids)) +
+  geom_point() +
+  geom_hline(yintercept =0)
 ```
 
