@@ -24,6 +24,7 @@ library(tmap)
 library(sf)
 library(spatialreg)
 library(stargazer)
+library(patchwork)
 ```
 
 ## Read in data
@@ -177,15 +178,32 @@ fire_asthma <- left_join(asthma_small, cal_fire_small)
 
 ```
 
+### Small data
 ```{r}
-ggplot(fire_asthma, aes(year, total_area)) +
-  geom_col()
+fire_plot <- ggplot(fire_asthma, aes(year, total_area)) +
+  geom_col(fill="firebrick") + 
+  labs(title="Total Area Burned by Wildifres\nin California by Year",
+       x="Year",
+       y="Area burned (acres)") +
+  theme_minimal() +
+    theme(axis.title = element_text(size=13),
+        title = element_text(size=14))
 
-ggplot(fire_asthma, aes(year, total_hosp_capita)) +
-  geom_col()
+hosp_plot <- ggplot(fire_asthma, aes(year, total_hosp_capita)) +
+  geom_col(fill="cornflowerblue") +
+  labs(title="Total Asthma Hospitalizations per Capita\nin California by Year",
+       x="Year",
+       y="Hospitalizations per capita (per 100K)") +
+  theme_minimal() +
+  theme(axis.title = element_text(size=13),
+        title = element_text(size=14))
 
-ggplot(fire_asthma, aes(total_area, total_hosp_capita)) +
-  geom_point()
+fire_plot + hosp_plot
+
+ggsave("fire-hosp.png", width = 12, height = 6)
+
+# ggplot(fire_asthma, aes(total_area, total_hosp_capita)) +
+#   geom_point()
 ```
 
 
@@ -206,6 +224,7 @@ summary(asthma_aqi)
 unique(asthma_aqi$year)
 ```
 
+### Maps
 ```{r}
 for (i in seq_along(unique(asthma_aqi$year))){
   asthma_i <- asthma_aqi %>% 
@@ -231,18 +250,28 @@ tm_shape(asthma_15) +
 
 ```
 
-
+### Looking for linear relationship
 ```{r}
 # Median AQI
-ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
-  geom_point()
+med_plot <- ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
+  geom_point() +
+  labs(title="Hospitalizations by Median AQI",
+       x="Median AQI",
+       y="Hospitalizations per 100K") +
+  theme_minimal()
+  
 ggplot(asthma_aqi, aes(median_aqi, log(hosp_per_100k))) +
   geom_point()
 ggplot(asthma_aqi, aes(log(median_aqi), log(hosp_per_100k))) +
   geom_point()
 
 ggplot(asthma_aqi, aes(median_aqi, age_adjusted_hospitalization_rate)) +
-  geom_point()
+  geom_point() +
+  labs(title="Hospitalizations by Median AQI",
+       x="Median AQI",
+       y="Hospitalizations per 100K") +
+  theme_minimal()
+  
 ggplot(asthma_aqi, aes(median_aqi, log(age_adjusted_hospitalization_rate))) +
   geom_point()
 ggplot(asthma_aqi, aes(log(median_aqi), log(age_adjusted_hospitalization_rate))) +
@@ -253,23 +282,40 @@ ggplot(asthma_aqi, aes(max_aqi, hosp_per_100k)) +
   geom_point()
 ggplot(asthma_aqi, aes(max_aqi, log(hosp_per_100k))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(max_aqi), log(hosp_per_100k))) +
-  geom_point()
+
+max_plot <- ggplot(asthma_aqi, aes(log(max_aqi), log(hosp_per_100k))) +
+  geom_point() + 
+  labs(title="Log transformed Hospitalizations\nby Max AQI",
+       x="log(Max AQI)",
+       y="log(Hospitalizations per 100K)") +
+  theme_minimal()
 
 ggplot(asthma_aqi, aes(max_aqi, age_adjusted_hospitalization_rate)) +
   geom_point()
 ggplot(asthma_aqi, aes(max_aqi, log(age_adjusted_hospitalization_rate))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(max_aqi), log(age_adjusted_hospitalization_rate))) +
-  geom_point()
+
+adj_max_plot <- ggplot(asthma_aqi, aes(log(max_aqi), log(age_adjusted_hospitalization_rate))) +
+  geom_point() + 
+  labs(title="Log transformed Age Adjusted\nHospitalization Rate by Max AQI",
+       x="log(Max AQI)",
+       y="log(Age adjusted hospitalization rate)") +
+  theme_minimal()
+
 
 # Unhealthy or greater days
 ggplot(asthma_aqi, aes(unhealthy_sum, hosp_per_100k)) +
   geom_point()
 ggplot(asthma_aqi, aes(unhealthy_sum, log(hosp_per_100k))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(unhealthy_sum), hosp_per_100k)) +
-  geom_point()
+
+unhealthy_plot <- ggplot(asthma_aqi, aes(log(unhealthy_sum), hosp_per_100k)) +
+  geom_point() +
+  labs(title="Hospitalizations by log transformed\nSum of unhealthy or worse days",
+       x="log(Sum of days unhealthy for\nsensitive groups or worse)",
+       y="Hospitalizations per 100K") +
+  theme_minimal()
+
 ggplot(asthma_aqi, aes(log(unhealthy_sum), log(hosp_per_100k))) +
   geom_point()
 
@@ -283,8 +329,13 @@ ggplot(asthma_aqi, aes(log(unhealthy_sum), log(age_adjusted_hospitalization_rate
   geom_point()
 
 # PM 2.5 days
-ggplot(asthma_aqi, aes(days_pm2_5, hosp_per_100k)) +
-  geom_point()
+pm_plot <- ggplot(asthma_aqi, aes(days_pm2_5, hosp_per_100k)) +
+  geom_point() +
+  labs(title="Hospitalizations by days with PM 2.5",
+       x="Days with PM 2.5",
+       y="Hospitalizations per 100K") +
+  theme_minimal()
+
 ggplot(asthma_aqi, aes(days_pm2_5, log(hosp_per_100k))) +
   geom_point()
 ggplot(asthma_aqi, aes(log(days_pm2_5), log(hosp_per_100k))) +
@@ -306,8 +357,13 @@ ggplot(asthma_aqi, aes(log(per_capita_income), hosp_per_100k)) +
   geom_point()
 ggplot(asthma_aqi, aes(per_capita_income, log(hosp_per_100k))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(per_capita_income), log(hosp_per_100k))) +
-  geom_point()
+
+income_plot <- ggplot(asthma_aqi, aes(log(per_capita_income), log(hosp_per_100k))) +
+  geom_point() +
+  labs(title="Log transformed Hospitalizations\nby per capita income",
+       x="log(Per capita income)",
+       y="log(Hospitalizations per 100K)") +
+  theme_minimal()
 
 ggplot(asthma_aqi, aes(per_capita_income, age_adjusted_hospitalization_rate)) +
   geom_point()
@@ -318,8 +374,12 @@ ggplot(asthma_aqi, aes(per_capita_income, log(age_adjusted_hospitalization_rate)
 ggplot(asthma_aqi, aes(log(per_capita_income), log(age_adjusted_hospitalization_rate))) +
   geom_point()
 
+
+(med_plot + max_plot + unhealthy_plot) / (pm_plot + income_plot + adj_max_plot)
+ggsave("scatter.png", width=10, height=6)
 ``` 
 
+### Group bys
 ```{r}
 # Group by year
 asthma_aqi %>% 
@@ -359,6 +419,7 @@ asthma_aqi %>%
 
 ```
 
+### LMs
 ```{r}
 median_mod <- lm(log(hosp_per_100k) ~ max_aqi, data = asthma_aqi)
 summary(median_mod)
@@ -380,6 +441,7 @@ ggplot(asthma_aqi, aes(median_aqi, log_hosp)) +
   # geom_abline(intercept = lm1_int, slope = lm1_slope, aes(color = "red"))
 ```
 
+### Residuals
 ```{r}
 resids <- asthma_lm$residuals
 fitted_vals <- fitted(asthma_lm)
