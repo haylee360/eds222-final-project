@@ -54,6 +54,13 @@ pop_2023 <- read_csv(here("data", "co-est2023-alldata.csv")) %>%
 cal_fire <- read_sf(here("data", "calfire_all.gdb")) %>% 
   clean_names()
 
+# NASA FIRMS fire data
+# modis <- read_sf(here("data", "DL_FIRE_M-C61_553990", "fire_archive_M-C61_553990.shp")) %>% 
+#   clean_names()
+
+# Smoke data
+# smoke <- read_sf(here("data", "hms_smoke20171204", "hms_smoke20171204.shp")) %>% 
+#   clean_names()
 ```
 
 ```{r}
@@ -165,16 +172,20 @@ asthma_aqi <- left_join(asthma_hosp_clean,
                                "year" = "year")) %>%
   left_join(bound_small) 
 
+# Small data with totals
 fire_asthma <- left_join(asthma_small, cal_fire_small)
 
 ```
 
 ```{r}
 ggplot(fire_asthma, aes(year, total_area)) +
-  geom_line()
+  geom_col()
 
 ggplot(fire_asthma, aes(year, total_hosp_capita)) +
-  geom_line()
+  geom_col()
+
+ggplot(fire_asthma, aes(total_area, total_hosp_capita)) +
+  geom_point()
 ```
 
 
@@ -182,6 +193,7 @@ ggplot(fire_asthma, aes(year, total_hosp_capita)) +
 # summary(asthma_aqi)
 # Add log mutated variables
 
+# Assign visits with zero to NA to properly apply the log transformation
 asthma_aqi$number_of_hospitalizations[asthma_aqi$number_of_hospitalizations == 0] <- NA
 
 asthma_aqi <- asthma_aqi %>% 
@@ -191,15 +203,49 @@ asthma_aqi <- asthma_aqi %>%
          max_aqi = replace(max_aqi, max_aqi > 500, 500))
 
 summary(asthma_aqi)
+unique(asthma_aqi$year)
 ```
+
+```{r}
+for (i in seq_along(unique(asthma_aqi$year))){
+  asthma_i <- asthma_aqi %>% 
+  filter(year == i) %>% 
+  st_as_sf()
+  
+  map <- tm_shape(asthma_i) +
+  tm_polygons(col="hosp_per_100k")
+  
+}
+asthma_15 <- asthma_aqi %>% 
+  filter(year == 2015) %>% 
+  st_as_sf()
+
+tm_shape(asthma_15) +
+  tm_polygons(col="hosp_per_100k")
+
+tm_shape(asthma_15) +
+  tm_polygons(col="median_aqi")
+
+tm_shape(asthma_15) +
+  tm_polygons(col="per_capita_income")
+
+```
+
 
 ```{r}
 # Median AQI
 ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
   geom_point()
-ggplot(asthma_aqi, aes(median_aqi, log(number_of_hospitalizations))) +
+ggplot(asthma_aqi, aes(median_aqi, log(hosp_per_100k))) +
   geom_point()
 ggplot(asthma_aqi, aes(log(median_aqi), log(hosp_per_100k))) +
+  geom_point()
+
+ggplot(asthma_aqi, aes(median_aqi, age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(median_aqi, log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(median_aqi), log(age_adjusted_hospitalization_rate))) +
   geom_point()
 
 # Max AQI
@@ -210,12 +256,30 @@ ggplot(asthma_aqi, aes(max_aqi, log(hosp_per_100k))) +
 ggplot(asthma_aqi, aes(log(max_aqi), log(hosp_per_100k))) +
   geom_point()
 
+ggplot(asthma_aqi, aes(max_aqi, age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(max_aqi, log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(max_aqi), log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+
 # Unhealthy or greater days
 ggplot(asthma_aqi, aes(unhealthy_sum, hosp_per_100k)) +
   geom_point()
 ggplot(asthma_aqi, aes(unhealthy_sum, log(hosp_per_100k))) +
   geom_point()
+ggplot(asthma_aqi, aes(log(unhealthy_sum), hosp_per_100k)) +
+  geom_point()
 ggplot(asthma_aqi, aes(log(unhealthy_sum), log(hosp_per_100k))) +
+  geom_point()
+
+ggplot(asthma_aqi, aes(unhealthy_sum, age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(unhealthy_sum, log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(unhealthy_sum), age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(unhealthy_sum), log(age_adjusted_hospitalization_rate))) +
   geom_point()
 
 # PM 2.5 days
@@ -226,28 +290,51 @@ ggplot(asthma_aqi, aes(days_pm2_5, log(hosp_per_100k))) +
 ggplot(asthma_aqi, aes(log(days_pm2_5), log(hosp_per_100k))) +
   geom_point()
 
-# Income per capita
-ggplot(asthma_aqi, aes(per_capita_income, median_aqi)) +
+ggplot(asthma_aqi, aes(days_pm2_5, age_adjusted_hospitalization_rate)) +
   geom_point()
-ggplot(asthma_aqi, aes(per_capita_income, log(median_aqi))) +
+ggplot(asthma_aqi, aes(days_pm2_5, log(age_adjusted_hospitalization_rate))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(per_capita_income), log(median_aqi))) +
+ggplot(asthma_aqi, aes(log(days_pm2_5), log(age_adjusted_hospitalization_rate))) +
   geom_point()
 
-asthma_aqi %>% 
-  group_by(year) %>% 
-  summarise(median_aqi = median(median_aqi, na.rm = TRUE)) %>% 
-  ggplot(aes(year, median_aqi)) +
-  geom_line()
+
+
+# Income per capita
+ggplot(asthma_aqi, aes(per_capita_income, hosp_per_100k)) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(per_capita_income), hosp_per_100k)) +
+  geom_point()
+ggplot(asthma_aqi, aes(per_capita_income, log(hosp_per_100k))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(per_capita_income), log(hosp_per_100k))) +
+  geom_point()
+
+ggplot(asthma_aqi, aes(per_capita_income, age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(per_capita_income), age_adjusted_hospitalization_rate)) +
+  geom_point()
+ggplot(asthma_aqi, aes(per_capita_income, log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+ggplot(asthma_aqi, aes(log(per_capita_income), log(age_adjusted_hospitalization_rate))) +
+  geom_point()
+
 ``` 
 
 ```{r}
+# Group by year
+asthma_aqi %>% 
+  group_by(year) %>% 
+  summarise(mean_max_aqi = mean(max_aqi, na.rm = TRUE)) %>% 
+  ggplot(aes(year, mean_max_aqi)) +
+  geom_col() 
+
 asthma_aqi %>% 
   group_by(year) %>% 
   summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
   ggplot(aes(year, total_hosp)) +
-  geom_point()
+  geom_col()
 
+# Group by county
 asthma_aqi %>% 
   group_by(county) %>% 
   summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
@@ -273,13 +360,19 @@ asthma_aqi %>%
 ```
 
 ```{r}
-asthma_lm <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
-summary(asthma_lm)
+median_mod <- lm(log(hosp_per_100k) ~ max_aqi, data = asthma_aqi)
+summary(median_mod)
+
+income_mod <- lm(log(hosp_per_100k) ~ log(per_capita_income), data = asthma_aqi)
+summary(income_mod)
+
+hosp_rate_mod <- lm(log(age_adjusted_hospitalization_rate) ~ log(per_capita_income), data = asthma_aqi)
+summary(hosp_rate_mod)
 ```
 
 ```{r}
-lm1_int <- summary(asthma_lm)$coefficients[1,1]
-lm1_slope <- summary(asthma_lm)$coefficients[1,2]
+lm1_int <- summary(median_mod)$coefficients[1,1]
+lm1_slope <- summary(median_mod)$coefficients[1,2]
 
 ggplot(asthma_aqi, aes(median_aqi, log_hosp)) +
   geom_point() +
