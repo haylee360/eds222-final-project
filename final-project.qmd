@@ -3,6 +3,9 @@ title: "Exploring Wildfire's effect on Asthma"
 author: "Haylee Oyler"
 format: html
 editor: source
+execute:
+  warning: false
+  message: false
 editor_options: 
   chunk_output_type: console
 ---
@@ -25,6 +28,9 @@ library(sf)
 library(spatialreg)
 library(stargazer)
 library(patchwork)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
 ```
 
 ## Read in data
@@ -105,10 +111,6 @@ asthma_hosp_clean <- asthma_hosp_county %>%
          county != "California") %>% 
   select(-c(comment, strata_name, age_group, strata))
 
-asthma_small <- asthma_aqi%>% 
-  group_by(year) %>% 
-  summarise(total_hosp_capita = sum(hosp_per_100k),
-            total_hosp = sum(number_of_hospitalizations))
 
 # Add row that's the sum of unhealthy for sensitive groups or greater
 aqi$unhealthy_sum <- rowSums(aqi[, c("unhealthy_for_sensitive_groups_days", "unhealthy_days", "hazardous_days", "very_unhealthy_days")])
@@ -173,6 +175,31 @@ asthma_aqi <- left_join(asthma_hosp_clean,
                                "year" = "year")) %>%
   left_join(bound_small) 
 
+
+
+
+```
+
+
+```{r}
+# summary(asthma_aqi)
+# Add log mutated variables
+
+# Assign visits with zero to NA to properly apply the log transformation
+asthma_aqi$number_of_hospitalizations[asthma_aqi$number_of_hospitalizations == 0] <- NA
+
+asthma_aqi <- asthma_aqi %>% 
+  drop_na(number_of_hospitalizations) %>% 
+  mutate(hosp_per_100k = (number_of_hospitalizations / population) * 100000,
+         log_hosp = log(hosp_per_100k),
+         max_aqi = replace(max_aqi, max_aqi > 500, 500))
+
+asthma_small <- asthma_aqi%>% 
+  group_by(year) %>% 
+  summarise(total_hosp_capita = sum(hosp_per_100k),
+            total_hosp = sum(number_of_hospitalizations))
+
+
 # Small data with totals
 fire_asthma <- left_join(asthma_small, cal_fire_small)
 
@@ -206,26 +233,10 @@ ggsave("fire-hosp.png", width = 12, height = 6)
 #   geom_point()
 ```
 
-
-```{r}
-# summary(asthma_aqi)
-# Add log mutated variables
-
-# Assign visits with zero to NA to properly apply the log transformation
-asthma_aqi$number_of_hospitalizations[asthma_aqi$number_of_hospitalizations == 0] <- NA
-
-asthma_aqi <- asthma_aqi %>% 
-  drop_na(number_of_hospitalizations) %>% 
-  mutate(hosp_per_100k = (number_of_hospitalizations / population) * 100000,
-         log_hosp = log(hosp_per_100k),
-         max_aqi = replace(max_aqi, max_aqi > 500, 500))
-
-summary(asthma_aqi)
-unique(asthma_aqi$year)
-```
-
 ### Maps
 ```{r}
+#| eval: false
+
 for (i in seq_along(unique(asthma_aqi$year))){
   asthma_i <- asthma_aqi %>% 
   filter(year == i) %>% 
@@ -252,6 +263,7 @@ tm_shape(asthma_15) +
 
 ### Looking for linear relationship
 ```{r}
+#| eval: false
 # Median AQI
 med_plot <- ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
   geom_point() +
@@ -381,6 +393,8 @@ ggsave("scatter.png", width=10, height=6)
 
 ### Group bys
 ```{r}
+#| eval: false
+
 # Group by year
 asthma_aqi %>% 
   group_by(year) %>% 
@@ -421,14 +435,14 @@ asthma_aqi %>%
 
 ### LMs
 ```{r}
-median_mod <- lm(log(hosp_per_100k) ~ max_aqi, data = asthma_aqi)
+median_mod <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
 summary(median_mod)
 
+tab_model(median_mod)
+
 income_mod <- lm(log(hosp_per_100k) ~ log(per_capita_income), data = asthma_aqi)
-summary(income_mod)
 
 hosp_rate_mod <- lm(log(age_adjusted_hospitalization_rate) ~ log(per_capita_income), data = asthma_aqi)
-summary(hosp_rate_mod)
 ```
 
 ```{r}
@@ -443,6 +457,7 @@ ggplot(asthma_aqi, aes(median_aqi, log_hosp)) +
 
 ### Residuals
 ```{r}
+#| eval: false
 resids <- asthma_lm$residuals
 fitted_vals <- fitted(asthma_lm)
 resid_plot <- tibble(resids, fitted_vals)
