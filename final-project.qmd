@@ -1,5 +1,5 @@
 ---
-title: "EDS 222 Final Project"
+title: "Exploring Wildfire's effect on Asthma"
 author: "Haylee Oyler"
 format: html
 editor: source
@@ -7,8 +7,12 @@ editor_options:
   chunk_output_type: console
 ---
 
-### Load libraries
+
+
 ```{r}
+#| code-fold: true
+#| code-summary: "Load libraries"
+
 library(tidyverse)
 library(here)
 library(janitor)
@@ -22,25 +26,33 @@ library(spatialreg)
 library(stargazer)
 ```
 
+## Read in data
 ```{r}
+# Asthma hospitalizations data
 asthma_hosp_county <- read_csv(here("data", "asthma-hospitalization-by-county.csv")) %>% 
   clean_names()
 
+# Demographic data
 demographics <- read_csv(here("data", "county_demographics.csv")) %>% 
   clean_names() %>% 
   filter(state == "CA")
 
+# County boundaries geospatial data
 county_boundaries <- read_sf(here("data", "ca_counties", "CA_Counties.shp")) %>% 
   clean_names() %>% 
   rename("county" = "name")
 
+# Population totals data
 pop_2020 <- read_csv(here("data", "co-est2020-alldata.csv")) %>% 
   clean_names() %>% 
   filter(stname == "California")
-
 pop_2023 <- read_csv(here("data", "co-est2023-alldata.csv")) %>% 
   clean_names() %>% 
   filter(stname == "California")
+
+# Cal fire perimeters data
+cal_fire <- read_sf(here("data", "calfire_all.gdb")) %>% 
+  clean_names()
 
 ```
 
@@ -85,6 +97,11 @@ asthma_hosp_clean <- asthma_hosp_county %>%
          county != "California") %>% 
   select(-c(comment, strata_name, age_group, strata))
 
+asthma_small <- asthma_aqi%>% 
+  group_by(year) %>% 
+  summarise(total_hosp_capita = sum(hosp_per_100k),
+            total_hosp = sum(number_of_hospitalizations))
+
 # Add row that's the sum of unhealthy for sensitive groups or greater
 aqi$unhealthy_sum <- rowSums(aqi[, c("unhealthy_for_sensitive_groups_days", "unhealthy_days", "hazardous_days", "very_unhealthy_days")])
 
@@ -110,7 +127,7 @@ for (col in 1:ncol(pop_total)){
                                           "popestimate")
 }
 
-# Clean county names to join later on
+# Clean county names
 pop_total$county <- pop_total$county %>% 
   str_remove(., " County")
 
@@ -120,6 +137,20 @@ pop_total <- pop_total %>%
 
 # Fix type for joining
 pop_total$year <- as.numeric(pop_total$year)
+
+# Clean cal fire data
+cal_fire_clean <- cal_fire %>% 
+  filter(year >= 2015) %>% 
+  group_by(year) %>% 
+  mutate(total_fires = n(),
+         total_area = sum(gis_acres)) %>% 
+  select(year, fire_name, gis_acres, shape_area, total_fires, total_area) %>% 
+  st_drop_geometry()
+
+cal_fire_small <- cal_fire_clean %>% 
+  group_by(year) %>% 
+  summarize(total_fires = n(),
+         total_area = sum(gis_acres))
 
 ```
 
@@ -134,20 +165,16 @@ asthma_aqi <- left_join(asthma_hosp_clean,
                                "year" = "year")) %>%
   left_join(bound_small) 
 
+fire_asthma <- left_join(asthma_small, cal_fire_small)
+
 ```
 
-
 ```{r}
-asthma_hosp_county %>% 
-  group_by(year) %>% 
-  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
-  ggplot(aes(year, total_hosp)) +
-  geom_point()
+ggplot(fire_asthma, aes(year, total_area)) +
+  geom_line()
 
-asthma_hosp_county %>% 
-  group_by(county) %>% 
-  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE))
-
+ggplot(fire_asthma, aes(year, total_hosp_capita)) +
+  geom_line()
 ```
 
 
@@ -170,7 +197,7 @@ summary(asthma_aqi)
 # Median AQI
 ggplot(asthma_aqi, aes(median_aqi, hosp_per_100k)) +
   geom_point()
-ggplot(asthma_aqi, aes(median_aqi, log(hosp_per_100k))) +
+ggplot(asthma_aqi, aes(median_aqi, log(number_of_hospitalizations))) +
   geom_point()
 ggplot(asthma_aqi, aes(log(median_aqi), log(hosp_per_100k))) +
   geom_point()
@@ -200,13 +227,50 @@ ggplot(asthma_aqi, aes(log(days_pm2_5), log(hosp_per_100k))) +
   geom_point()
 
 # Income per capita
-ggplot(asthma_aqi, aes(per_capita_income, hosp_per_100k)) +
+ggplot(asthma_aqi, aes(per_capita_income, median_aqi)) +
   geom_point()
-ggplot(asthma_aqi, aes(per_capita_income, log(hosp_per_100k))) +
+ggplot(asthma_aqi, aes(per_capita_income, log(median_aqi))) +
   geom_point()
-ggplot(asthma_aqi, aes(log(per_capita_income), log(hosp_per_100k))) +
+ggplot(asthma_aqi, aes(log(per_capita_income), log(median_aqi))) +
   geom_point()
+
+asthma_aqi %>% 
+  group_by(year) %>% 
+  summarise(median_aqi = median(median_aqi, na.rm = TRUE)) %>% 
+  ggplot(aes(year, median_aqi)) +
+  geom_line()
 ``` 
+
+```{r}
+asthma_aqi %>% 
+  group_by(year) %>% 
+  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
+  ggplot(aes(year, total_hosp)) +
+  geom_point()
+
+asthma_aqi %>% 
+  group_by(county) %>% 
+  summarize(total_hosp = sum(number_of_hospitalizations, na.rm = TRUE)) %>% 
+  ggplot(aes(county, total_hosp)) +
+  geom_point()
+
+asthma_aqi %>% 
+  group_by(county) %>% 
+  summarize(total_hosp = sum(hosp_per_100k, na.rm = TRUE)) %>% 
+  ggplot(aes(county, total_hosp)) +
+  geom_point()
+
+asthma_aqi[asthma_aqi$number_of_hospitalizations == max(asthma_aqi$number_of_hospitalizations)[1],]
+
+asthma_aqi[asthma_aqi$hosp_per_100k == max(asthma_aqi$hosp_per_100k)[1],]
+
+asthma_aqi %>% 
+  group_by(county) %>% 
+  summarise(median_aqi = median(median_aqi, na.rm = TRUE)) %>% 
+  ggplot(aes(county, median_aqi)) +
+  geom_point()
+
+```
 
 ```{r}
 asthma_lm <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
