@@ -19,10 +19,6 @@ editor_options:
 library(tidyverse)
 library(here)
 library(janitor)
-library(httr)
-library(httr2)
-library(purrr)
-library(RAQSAPI)
 library(tmap)
 library(sf)
 library(spatialreg)
@@ -31,6 +27,7 @@ library(patchwork)
 library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
+library(dynlm)
 ```
 
 ## Read in data
@@ -61,16 +58,6 @@ pop_2023 <- read_csv(here("data", "co-est2023-alldata.csv")) %>%
 cal_fire <- read_sf(here("data", "calfire_all.gdb")) %>% 
   clean_names()
 
-# NASA FIRMS fire data
-# modis <- read_sf(here("data", "DL_FIRE_M-C61_553990", "fire_archive_M-C61_553990.shp")) %>% 
-#   clean_names()
-
-# Smoke data
-# smoke <- read_sf(here("data", "hms_smoke20171204", "hms_smoke20171204.shp")) %>% 
-#   clean_names()
-```
-
-```{r}
 # Read in AQI files as one dataset
 aqi_files <- list.files(here("data", "aqi"), 
                         pattern = "annual",
@@ -85,7 +72,16 @@ for (file in aqi_files) {
   aqi <- rbind(aqi, clean_file)
   rm(clean_file)
 }
+
+# NASA FIRMS fire data
+# modis <- read_sf(here("data", "DL_FIRE_M-C61_553990", "fire_archive_M-C61_553990.shp")) %>% 
+#   clean_names()
+
+# Smoke data
+# smoke <- read_sf(here("data", "hms_smoke20171204", "hms_smoke20171204.shp")) %>% 
+#   clean_names()
 ```
+
 
 ## Clean data
 ```{r}
@@ -176,8 +172,6 @@ asthma_aqi <- left_join(asthma_hosp_clean,
   left_join(bound_small) 
 
 
-
-
 ```
 
 
@@ -194,19 +188,23 @@ asthma_aqi <- asthma_aqi %>%
          log_hosp = log(hosp_per_100k),
          max_aqi = replace(max_aqi, max_aqi > 500, 500))
 
+```
+
+### Small data
+```{r}
+# Find yearly totals of hospitalizations
 asthma_small <- asthma_aqi%>% 
   group_by(year) %>% 
   summarise(total_hosp_capita = sum(hosp_per_100k),
             total_hosp = sum(number_of_hospitalizations))
 
 
-# Small data with totals
+# Totals data from fire and asthma 
 fire_asthma <- left_join(asthma_small, cal_fire_small)
 
-```
+write_csv(fire_asthma, path="fire_asthma")
 
-### Small data
-```{r}
+# Plot totals data
 fire_plot <- ggplot(fire_asthma, aes(year, total_area)) +
   geom_col(fill="firebrick") + 
   labs(title="Total Area Burned by Wildifres\nin California by Year",
@@ -229,8 +227,6 @@ fire_plot + hosp_plot
 
 ggsave("fire-hosp.png", width = 12, height = 6)
 
-# ggplot(fire_asthma, aes(total_area, total_hosp_capita)) +
-#   geom_point()
 ```
 
 ### Maps
@@ -465,5 +461,33 @@ resid_plot <- tibble(resids, fitted_vals)
 ggplot(resid_plot, aes(fitted_vals, resids)) +
   geom_point() +
   geom_hline(yintercept =0)
+```
+
+```{r}
+median_mod_no_log <- lm(hosp_per_100k ~ median_aqi, data = asthma_aqi)
+summary(median_mod_no_log)
+
+residual_acf <- acf(resid(median_mod), plot = FALSE)
+tibble(Lag = residual_acf$lag, ACF = as.vector(residual_acf$acf)) %>% 
+  ggplot(aes(Lag, ACF)) +
+  geom_hline(yintercept = 0, 
+             linetype = "dashed", 
+             color = "cornflowerblue",
+             linewidth = 1.5) +
+  geom_line(linewidth = 2)
+```
+
+
+```{r}
+adl_mod <- dynlm(
+  log(hosp_per_100k) ~L(log(hosp_per_100k), 1) + L(median_aqi, 0:1), data = asthma_aqi, start = 2015
+  )
+
+summary(adl_mod)
+```
+
+
+```{r}
+st_write(asthma_aqi, "asthma_aqi.geojson", driver="GeoJSON")
 ```
 
