@@ -126,6 +126,7 @@ pop_2023 <- pop_2023 %>%
 
 # Join population data together
 pop_total <- left_join(pop_2020, pop_2023, by = join_by(county)) 
+rm(pop_2020, pop_2023)
 
 # Clean the population column names to pivot longer
 for (col in 1:ncol(pop_total)){
@@ -174,7 +175,7 @@ asthma_aqi <- left_join(asthma_hosp_clean,
 
 ```
 
-
+### Mutate joined data
 ```{r}
 # summary(asthma_aqi)
 # Add log mutated variables
@@ -184,9 +185,22 @@ asthma_aqi$number_of_hospitalizations[asthma_aqi$number_of_hospitalizations == 0
 
 asthma_aqi <- asthma_aqi %>% 
   drop_na(number_of_hospitalizations) %>% 
+  st_as_sf() %>% 
   mutate(hosp_per_100k = (number_of_hospitalizations / population) * 100000,
          log_hosp = log(hosp_per_100k),
-         max_aqi = replace(max_aqi, max_aqi > 500, 500))
+         max_aqi = replace(max_aqi, max_aqi > 500, 500),
+         centroids = st_centroid(geometry))
+
+
+
+lat_lon <- asthma_aqi %>% 
+  extract(centroids, c('lat', 'lon'), '\\((.*), (.*)\\)', convert = TRUE)
+
+# coordinates <- st_coordinates(asthma_aqi$centroids)
+# 
+# asthma_aqi <- asthma_aqi %>% 
+#   mutate(latitude = coordinates[,"Y"],
+#          longitude = coordinates[,"X"])
 
 ```
 
@@ -207,7 +221,7 @@ write_csv(fire_asthma, path="fire_asthma")
 # Plot totals data
 fire_plot <- ggplot(fire_asthma, aes(year, total_area)) +
   geom_col(fill="firebrick") + 
-  labs(title="Total Area Burned by Wildifres\nin California by Year",
+  labs(title="Total Area Burned by Wildfires\nin California by Year",
        x="Year",
        y="Area burned (acres)") +
   theme_minimal() +
@@ -434,12 +448,27 @@ asthma_aqi %>%
 median_mod <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
 summary(median_mod)
 
-tab_model(median_mod)
 
-income_mod <- lm(log(hosp_per_100k) ~ log(per_capita_income), data = asthma_aqi)
-
-hosp_rate_mod <- lm(log(age_adjusted_hospitalization_rate) ~ log(per_capita_income), data = asthma_aqi)
+asthma_mod <- lm(log(hosp_per_100k) ~ median_aqi + year + per_capita_income, data = asthma_aqi)
+summary(asthma_mod)
 ```
+
+```{r}
+asthma_hosp_table <- tab_model(asthma,
+                               pred.labels = c("Intercept", 
+                                               "Median AQI", 
+                                               "Year", 
+                                               "Log Pop Density", 
+                                               "Median Income (in $1000s)"),
+                               dv.labels = c("Hospitalization Rate (per 100k)"),
+                               string.ci = "Conf. Int (95%)",
+                               string.p = "P-value",
+                               title = "Table 1. Linear Model Results",
+                               digits = 3)
+
+asthma_hosp_table
+```
+
 
 ```{r}
 lm1_int <- summary(median_mod)$coefficients[1,1]
@@ -454,34 +483,45 @@ ggplot(asthma_aqi, aes(median_aqi, log_hosp)) +
 ### Residuals
 ```{r}
 #| eval: false
-resids <- asthma_lm$residuals
-fitted_vals <- fitted(asthma_lm)
+resids <- asthma_mod$residuals
+fitted_vals <- fitted(asthma_mod)
 resid_plot <- tibble(resids, fitted_vals)
 
 ggplot(resid_plot, aes(fitted_vals, resids)) +
   geom_point() +
-  geom_hline(yintercept =0)
+  geom_hline(yintercept =0) +
+  theme_minimal() +
+  labs(title="Residuals log(hosp_100k) ~ median AQI",
+       x = " Fitted values",
+       y = "Residuals") +
+  theme(panel.background = element_rect(fill = "white", color = "white"),
+        plot.background = element_rect(fill = "white", color = "white"),
+        )
+
+# ggsave("resids.png", width = 6, height = 6)
 ```
 
 ```{r}
-median_mod_no_log <- lm(hosp_per_100k ~ median_aqi, data = asthma_aqi)
-summary(median_mod_no_log)
-
-residual_acf <- acf(resid(median_mod), plot = FALSE)
+residual_acf <- acf(resid(adl_mod), plot = FALSE, na.action = na.pass)
 tibble(Lag = residual_acf$lag, ACF = as.vector(residual_acf$acf)) %>% 
   ggplot(aes(Lag, ACF)) +
   geom_hline(yintercept = 0, 
              linetype = "dashed", 
              color = "cornflowerblue",
              linewidth = 1.5) +
-  geom_line(linewidth = 2)
+  geom_line(linewidth = 2) +
+  theme_minimal()
 ```
 
 
 ```{r}
+# asthma_aqi <- asthma_aqi %>% 
+#   st_drop_geometry() %>% 
+#   select(!centroids)
+
 adl_mod <- dynlm(
-  log(hosp_per_100k) ~L(log(hosp_per_100k), 1) + L(median_aqi, 0:1), data = asthma_aqi, start = 2015
-  )
+  hosp_per_100k ~ L(hosp_per_100k, 1) + L(median_aqi, 0:1) + L(year, 0:1) + L(per_capita_income, 0:1), ts(asthma_aqi, start = 2015)
+)
 
 summary(adl_mod)
 ```
