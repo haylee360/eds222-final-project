@@ -72,14 +72,6 @@ for (file in aqi_files) {
   aqi <- rbind(aqi, clean_file)
   rm(clean_file)
 }
-
-# NASA FIRMS fire data
-# modis <- read_sf(here("data", "DL_FIRE_M-C61_553990", "fire_archive_M-C61_553990.shp")) %>% 
-#   clean_names()
-
-# Smoke data
-# smoke <- read_sf(here("data", "hms_smoke20171204", "hms_smoke20171204.shp")) %>% 
-#   clean_names()
 ```
 
 
@@ -528,6 +520,101 @@ summary(adl_mod)
 
 
 ```{r}
-st_write(asthma_aqi, "asthma_aqi.geojson", driver="GeoJSON")
+# st_write(asthma_aqi, "asthma_aqi.geojson", driver="GeoJSON")
 ```
+
+### ADL model
+```{r}
+#| code-fold: true
+#| code-summary: "Reveal code"
+
+adl_mod <- dynlm(
+  log(hosp_per_100k) ~ L(log(hosp_per_100k), 1) + L(median_aqi, 0:1) + L(year, 0:1), ts(asthma_aqi, start = 2015)
+)
+
+adl_table <- tab_model(adl_mod,
+                       pred.labels = c("Intercept", 
+                                       "Lagged Hospitalizations\nper 100k", 
+                                       "Median AQI",
+                                       "Lagged Median AQI",
+                                       "Year"),
+                               dv.labels = c("Asthma Hospitalizations (per 100k)"),
+                               string.ci = "95% Conf. Int.",
+                               string.p = "P-value",
+                               title = "Table 2. ADL Model Results",
+                               digits = 3)
+
+adl_table
+```
+Model matrix is rank deficient. Parameters `L(year, 0:1)2` were not estimable.
+Hit 7 year limit, ADL not working. 
+
+```{r}
+# asthma_hosp_table <- tab_model(asthma_mod,
+#                                pred.labels = c("Intercept", 
+#                                                "Median AQI", 
+#                                                "Year"), 
+#                                dv.labels = c("Asthma Hospitalizations (per 100k)"),
+#                                string.ci = "95% Conf. Int.",
+#                                string.p = "P-value",
+#                                title = "Table 1. Linear Model Results",
+#                                digits = 3)
+```
+
+#### Model 2: Autoregressive distributive lag model
+Because my data was highly autocorrelated, I decided to use an autoregressive distributive lag model next. This model lags the response of the
+
+\begin{align*}
+log(hosp\_per\_100k)[t] = \beta_0 + \beta_1 median\_aqi[t] + \beta_2year[t] + \beta_3log(hosp\_per\_100k)[t-1] + \\
+                          \beta_4 median\_aqi[t-1] + \beta_5year[t-1] + u_i
+\end{align*}
+
+Where `t` is our data at `time = t` and `t-1` is our data at `time = t-1`. 
+
+The ADL model accounted for much of the autocorrelation in the residuals of my first linear model.
+
+### ACF plot 
+```{r}
+#| echo: false
+#| eval: false
+residual_acf_before <- acf(resid(asthma_mod), 
+                           plot = FALSE, 
+                           na.action = na.pass)
+
+acf_before_df <- tibble(Lag = residual_acf_before$lag, 
+                        ACF = as.vector(residual_acf_before$acf)) 
+
+acf_before <-  ggplot(acf_before_df, aes(Lag, ACF)) + 
+  geom_hline(yintercept = 0, 
+             linetype = "dashed", 
+             color = "cornflowerblue",
+             linewidth = 1.5) +
+  geom_line(linewidth = 2) +
+  theme_minimal()
+
+acf_before
+```
+
+
+```{r}
+#| code-fold: true
+#| code-summary: "Preliminary visualization"
+
+hosp <- ggplot(asthma_aqi, aes(hosp_per_100k)) +
+  geom_histogram(binwidth = 8,
+                 fill="green4") +
+  theme_minimal()+
+  labs(title="Hospitalization Distribution",
+       x="Hospitalizations per 100k")
+
+median <- ggplot(asthma_aqi, aes(median_aqi)) +
+  geom_histogram(binwidth = 5,
+                 fill="magenta3") +
+  theme_minimal() +
+  labs(title="Median AQI Distribution",
+       x="Median AQI")
+
+hosp | median
+```
+
 
