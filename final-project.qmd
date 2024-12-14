@@ -184,7 +184,7 @@ asthma_aqi <- asthma_aqi %>%
          centroids = st_centroid(geometry))
 
 
-
+# Turn polygons into lat lon
 lat_lon <- asthma_aqi %>% 
   extract(centroids, c('lat', 'lon'), '\\((.*), (.*)\\)', convert = TRUE)
 
@@ -194,6 +194,28 @@ lat_lon <- asthma_aqi %>%
 #   mutate(latitude = coordinates[,"Y"],
 #          longitude = coordinates[,"X"])
 
+```
+
+### Preliminary visualization
+```{r}
+#| code-fold: true
+#| code-summary: "Preliminary visualization"
+
+hosp <- ggplot(asthma_aqi, aes(hosp_per_100k)) +
+  geom_histogram(binwidth = 8,
+                 fill="green4") +
+  theme_minimal()+
+  labs(title="Hospitalization Distribution",
+       x="Hospitalizations per 100k")
+
+median <- ggplot(asthma_aqi, aes(median_aqi)) +
+  geom_histogram(binwidth = 5,
+                 fill="magenta3") +
+  theme_minimal() +
+  labs(title="Median AQI Distribution",
+       x="Median AQI")
+
+hosp | median
 ```
 
 ### Small data
@@ -207,8 +229,6 @@ asthma_small <- asthma_aqi%>%
 
 # Totals data from fire and asthma 
 fire_asthma <- left_join(asthma_small, cal_fire_small)
-
-write_csv(fire_asthma, path="fire_asthma")
 
 # Plot totals data
 fire_plot <- ggplot(fire_asthma, aes(year, total_area)) +
@@ -231,7 +251,7 @@ hosp_plot <- ggplot(fire_asthma, aes(year, total_hosp_capita)) +
 
 fire_plot + hosp_plot
 
-ggsave("fire-hosp.png", width = 12, height = 6)
+# ggsave("fire-hosp.png", width = 12, height = 6)
 
 ```
 
@@ -239,15 +259,6 @@ ggsave("fire-hosp.png", width = 12, height = 6)
 ```{r}
 #| eval: false
 
-for (i in seq_along(unique(asthma_aqi$year))){
-  asthma_i <- asthma_aqi %>% 
-  filter(year == i) %>% 
-  st_as_sf()
-  
-  map <- tm_shape(asthma_i) +
-  tm_polygons(col="hosp_per_100k")
-  
-}
 asthma_15 <- asthma_aqi %>% 
   filter(year == 2015) %>% 
   st_as_sf()
@@ -440,28 +451,14 @@ asthma_aqi %>%
 median_mod <- lm(log(hosp_per_100k) ~ median_aqi, data = asthma_aqi)
 summary(median_mod)
 
+year_mod <- lm(log(hosp_per_100k) ~ as.factor(year), data = asthma_aqi)
+summary(year_mod)
 
-asthma_mod <- lm(log(hosp_per_100k) ~ median_aqi + year + per_capita_income, data = asthma_aqi)
+asthma_mod <- lm(log(hosp_per_100k) ~ median_aqi + as.factor(year), data = asthma_aqi)
 summary(asthma_mod)
 ```
 
-```{r}
-asthma_hosp_table <- tab_model(asthma,
-                               pred.labels = c("Intercept", 
-                                               "Median AQI", 
-                                               "Year", 
-                                               "Log Pop Density", 
-                                               "Median Income (in $1000s)"),
-                               dv.labels = c("Hospitalization Rate (per 100k)"),
-                               string.ci = "Conf. Int (95%)",
-                               string.p = "P-value",
-                               title = "Table 1. Linear Model Results",
-                               digits = 3)
-
-asthma_hosp_table
-```
-
-
+### Plotting best fit line
 ```{r}
 lm1_int <- summary(median_mod)$coefficients[1,1]
 lm1_slope <- summary(median_mod)$coefficients[1,2]
@@ -493,8 +490,9 @@ ggplot(resid_plot, aes(fitted_vals, resids)) +
 # ggsave("resids.png", width = 6, height = 6)
 ```
 
+### ACF
 ```{r}
-residual_acf <- acf(resid(adl_mod), plot = FALSE, na.action = na.pass)
+residual_acf <- acf(resid(asthma_mod), plot = FALSE, na.action = na.pass)
 tibble(Lag = residual_acf$lag, ACF = as.vector(residual_acf$acf)) %>% 
   ggplot(aes(Lag, ACF)) +
   geom_hline(yintercept = 0, 
@@ -505,116 +503,13 @@ tibble(Lag = residual_acf$lag, ACF = as.vector(residual_acf$acf)) %>%
   theme_minimal()
 ```
 
-
+### Drop geometry
 ```{r}
 # asthma_aqi <- asthma_aqi %>% 
 #   st_drop_geometry() %>% 
 #   select(!centroids)
 
-adl_mod <- dynlm(
-  hosp_per_100k ~ L(hosp_per_100k, 1) + L(median_aqi, 0:1) + L(year, 0:1) + L(per_capita_income, 0:1), ts(asthma_aqi, start = 2015)
-)
-
-summary(adl_mod)
 ```
 
-
-```{r}
-# st_write(asthma_aqi, "asthma_aqi.geojson", driver="GeoJSON")
-```
-
-### ADL model
-```{r}
-#| code-fold: true
-#| code-summary: "Reveal code"
-
-adl_mod <- dynlm(
-  log(hosp_per_100k) ~ L(log(hosp_per_100k), 1) + L(median_aqi, 0:1) + L(year, 0:1), ts(asthma_aqi, start = 2015)
-)
-
-adl_table <- tab_model(adl_mod,
-                       pred.labels = c("Intercept", 
-                                       "Lagged Hospitalizations\nper 100k", 
-                                       "Median AQI",
-                                       "Lagged Median AQI",
-                                       "Year"),
-                               dv.labels = c("Asthma Hospitalizations (per 100k)"),
-                               string.ci = "95% Conf. Int.",
-                               string.p = "P-value",
-                               title = "Table 2. ADL Model Results",
-                               digits = 3)
-
-adl_table
-```
-Model matrix is rank deficient. Parameters `L(year, 0:1)2` were not estimable.
-Hit 7 year limit, ADL not working. 
-
-```{r}
-# asthma_hosp_table <- tab_model(asthma_mod,
-#                                pred.labels = c("Intercept", 
-#                                                "Median AQI", 
-#                                                "Year"), 
-#                                dv.labels = c("Asthma Hospitalizations (per 100k)"),
-#                                string.ci = "95% Conf. Int.",
-#                                string.p = "P-value",
-#                                title = "Table 1. Linear Model Results",
-#                                digits = 3)
-```
-
-#### Model 2: Autoregressive distributive lag model
-Because my data was highly autocorrelated, I decided to use an autoregressive distributive lag model next. This model lags the response of the
-
-\begin{align*}
-log(hosp\_per\_100k)[t] = \beta_0 + \beta_1 median\_aqi[t] + \beta_2year[t] + \beta_3log(hosp\_per\_100k)[t-1] + \\
-                          \beta_4 median\_aqi[t-1] + \beta_5year[t-1] + u_i
-\end{align*}
-
-Where `t` is our data at `time = t` and `t-1` is our data at `time = t-1`. 
-
-The ADL model accounted for much of the autocorrelation in the residuals of my first linear model.
-
-### ACF plot 
-```{r}
-#| echo: false
-#| eval: false
-residual_acf_before <- acf(resid(asthma_mod), 
-                           plot = FALSE, 
-                           na.action = na.pass)
-
-acf_before_df <- tibble(Lag = residual_acf_before$lag, 
-                        ACF = as.vector(residual_acf_before$acf)) 
-
-acf_before <-  ggplot(acf_before_df, aes(Lag, ACF)) + 
-  geom_hline(yintercept = 0, 
-             linetype = "dashed", 
-             color = "cornflowerblue",
-             linewidth = 1.5) +
-  geom_line(linewidth = 2) +
-  theme_minimal()
-
-acf_before
-```
-
-
-```{r}
-#| code-fold: true
-#| code-summary: "Preliminary visualization"
-
-hosp <- ggplot(asthma_aqi, aes(hosp_per_100k)) +
-  geom_histogram(binwidth = 8,
-                 fill="green4") +
-  theme_minimal()+
-  labs(title="Hospitalization Distribution",
-       x="Hospitalizations per 100k")
-
-median <- ggplot(asthma_aqi, aes(median_aqi)) +
-  geom_histogram(binwidth = 5,
-                 fill="magenta3") +
-  theme_minimal() +
-  labs(title="Median AQI Distribution",
-       x="Median AQI")
-
-hosp | median
-```
 
 
